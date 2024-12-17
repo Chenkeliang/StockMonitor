@@ -4,6 +4,7 @@ import time
 from datetime import datetime
 import threading
 import json
+from functools import partial
 
 
 class StockMenuBar(rumps.App):
@@ -21,13 +22,9 @@ class StockMenuBar(rumps.App):
         # 初始化其他属性
         self.is_rotating = True
         self.stock_items = {}
+        self.current_index = 0  # 添加当前显示的股票索引
+        self.current_stock = None  # 添加当前显示的股票代码
         self.setup_menu()
-
-    @rumps.timer(5)
-    def updateStockPrice(self, sender):
-        self.update_thread = threading.Thread(target=self.update_stocks, daemon=True)
-        self.update_thread.start()
-        # self.update_stocks()
 
     def setup_menu(self):
         self.load_stocks()
@@ -41,6 +38,7 @@ class StockMenuBar(rumps.App):
             print(f"设置菜单{code}")
             self.stock_items[code] = rumps.MenuItem("加载中...")
             self.menu.add(self.stock_items[code])
+        print(f"设置菜单{self.stock_items}")
 
         # 添加分割线和更新时间
         self.menu.add(rumps.separator)
@@ -66,7 +64,7 @@ class StockMenuBar(rumps.App):
             market = "1" if stock_code.startswith("sh") else "0"
             pure_code = stock_code[2:]
 
-            url = f"http://push2.eastmoney.com/api/qt/stock/get"
+            url = "http://push2.eastmoney.com/api/qt/stock/get"
             params = {
                 "secid": f"{market}.{pure_code}",
                 "fields": "f58,f43,f170,f47,f48,f60,f46,f45,f44,f51,f168,f169",
@@ -105,51 +103,42 @@ class StockMenuBar(rumps.App):
         except (FileNotFoundError, json.JSONDecodeError):
             pass
 
-        # 如果文件不存在、为空或解析失败，保存默认股票列表
+        # 如果文件不存在、为空或解��失败，保存默认股票列表
         self.save_stocks()
 
     def update_stocks(self):
         """更新所有股票数据"""
-        while True:
+        while self.is_rotating:  # 使用标志位控制循环
             try:
-                if self.is_rotating:
-                    print("开始更新股票数据")
-                    stock_updates = {}
-                    for code in self.stocks.keys():
-                        data = self.fetch_stock_data(code)
-                        if data:
-                            stock_updates[code] = data
+                stock_updates = {}
+                for code in self.stocks.keys():
+                    data = self.fetch_stock_data(code)
+                    if data:
+                        stock_updates[code] = data
 
-                    print(f"股票数据: {stock_updates}")
+                # 更新UI
+                for code, data in stock_updates.items():
+                    name = data["name"] or self.stocks[code]["name"]
+                    price = data["price"]
+                    change = data["change"]
 
-                    try:
-                        for code, data in stock_updates.items():
-                            name = data["name"] or self.stocks[code]["name"]
-                            price = data["price"]
-                            change = data["change"]
+                    # 根据涨跌设置不同的符号
+                    change_symbol = "↑" if change > 0 else "↓"
+                    change_text = f"+{change:.2f}%" if change > 0 else f"{change:.2f}%"
 
-                            # 根据涨跌设置不同的符号
-                            change_symbol = "↑" if change > 0 else "↓"
-                            change_text = (
-                                f"+{change:.2f}%" if change > 0 else f"{change:.2f}%"
-                            )
+                    # 更新菜单项文本
+                    text = f"{name}: {price:.2f} {change_symbol} {change_text}"
+                    if code in self.stock_items:
+                        self.stock_items[code].title = text
 
-                            # 更新菜单项文本
-                            text = f"{name}: {price:.2f} {change_symbol} {change_text}"
-                            if code in self.stock_items:
-                                self.stock_items[code].title = text
+                # 更新时间
+                current_time = datetime.now().strftime("%H:%M:%S")
+                self.update_time.title = f"更新时间: {current_time}"
 
-                        # 更新时间
-                        current_time = datetime.now().strftime("%H:%M:%S")
-                        self.update_time.title = f"更新时间: {current_time}"
-
-                        # 停止定时器
-                    except Exception as e:
-                        print(f"UI update error: {str(e)}")
-                time.sleep(2)  # 主循环间隔
             except Exception as e:
                 print(f"Update error: {str(e)}")
-                time.sleep(5)
+
+            time.sleep(2)  # 更新间隔
 
     def add_stock(self, sender):
         """添加股票"""
@@ -178,7 +167,7 @@ class StockMenuBar(rumps.App):
                         else:
                             rumps.alert("警告", "股票已添加，但保存配置文件失败")
                     else:
-                        rumps.alert("错误", "无效的股票代码")
+                        rumps.alert("错误", "无���的股票代码")
             else:
                 rumps.alert("提示", "请输入有效的股票代码")
 
@@ -188,43 +177,32 @@ class StockMenuBar(rumps.App):
             rumps.alert("提示", "监控列表为空")
             return
 
+        # 创建选项列表
+        options = []
+        for code, info in self.stocks.items():
+            options.append(f"{info['name']} ({code})")
+
+        # 创建选择窗口
         window = rumps.Window(
             message="请选择要删除的股票：",
             title="删除股票",
             default_text="",
+            dimensions=(200, 100),  # 设置窗口大小
             ok="删除",
             cancel="取消",
         )
 
-        # 添加所有股票作为选项
-        for code, info in self.stocks.items():
-            window.add_button(f"{info['name']} ({code})")
+        # 添加选项列表
+        window.default_text = "\n".join(options)
 
+        # 显示窗口并获取结果
         response = window.run()
-        if response.clicked and response.text:
-            try:
-                # 从选择的文本中提取股票代码
-                start_index = response.text.rfind("(")
-                end_index = response.text.rfind(")")
-
-                if start_index != -1 and end_index != -1 and start_index < end_index:
-                    code = response.text[start_index + 1 : end_index]
-                    if code in self.stocks:
-                        name = self.stocks[code]["name"]
-                        del self.stocks[code]
-                        if self.save_stocks():
-                            rumps.alert(
-                                "删除成功", f"已从监控列表中删除 {name} ({code})"
-                            )
-                            self.setup_menu()  # 重新设置菜单
-                        else:
-                            rumps.alert("警告", "股票已删除，但保存配置文件失败")
-                    else:
-                        rumps.alert("错误", "未找到该股票")
-                else:
-                    rumps.alert("错误", "无法解析股票代码")
-            except Exception as e:
-                rumps.alert("错误", f"删除失败: {str(e)}")
+        if response.clicked:
+            selected_text = response.text.strip()
+            if selected_text in options:
+                self.on_button_click(selected_text)
+            else:
+                rumps.alert("错误", "请选择有效的股票")
 
     def save_stocks(self):
         """保存股票列表到配置文件"""
@@ -237,15 +215,84 @@ class StockMenuBar(rumps.App):
             return False
 
     def toggle_rotation(self, sender):
-        """换轮播状态"""
-        if sender.title == "暂停轮播":
-            sender.title = "开始轮播"
-        else:
+        """切换轮播状态"""
+        self.is_rotating = not self.is_rotating  # 切换轮播状态
+        if self.is_rotating:
             sender.title = "暂停轮播"
+        else:
+            sender.title = "开始轮播"
 
     def quit_app(self, sender):
         """退出应用"""
         rumps.quit_application()
+
+    def on_button_click(self, button_text):
+        """处理按钮点击事件"""
+        print(f"Button clicked: {button_text}")
+        # 从按钮文本中提取股票代码
+        start_index = button_text.rfind("(")
+        end_index = button_text.rfind(")")
+        if start_index != -1 and end_index != -1 and start_index < end_index:
+            code = button_text[start_index + 1 : end_index]
+            if code in self.stocks:
+                del self.stocks[code]
+                if self.save_stocks():
+                    rumps.alert("删除成功", f"已从监控列表删除 {code}")
+                    self.setup_menu()  # 重新设置菜单
+                else:
+                    rumps.alert("警告", "股票已��除，但保存配置文件失败")
+            else:
+                rumps.alert("错误", "未找到该股票")
+        else:
+            rumps.alert("错误", "无法解析股票代码")
+
+    @rumps.timer(1)
+    def updateStockPrice(self, sender):
+        """更新股票价格"""
+        if not self.stocks:
+            return
+
+        try:
+            stock_codes = list(self.stocks.keys())
+
+            # 更新当前显示的股票
+            if self.is_rotating:
+                self.current_stock = stock_codes[self.current_index]
+                self.current_index = (self.current_index + 1) % len(stock_codes)
+            elif self.current_stock is None:
+                self.current_stock = stock_codes[0]
+
+            # 获取当前显示股票的数据
+            current_data = self.fetch_stock_data(self.current_stock)
+            if current_data:
+                name = current_data["name"] or self.stocks[self.current_stock]["name"]
+                change = current_data["change"]
+                change_symbol = "↑" if change > 0 else "↓"
+                change_text = f"+{change:.2f}%" if change > 0 else f"{change:.2f}%"
+                self.title = f"{name} {change_symbol}{change_text}"
+
+            # 更新时间（即使菜单关闭也会更新）
+            current_time = datetime.now().strftime("%H:%M:%S")
+            self.update_time.title = f"更新时间: {current_time}"
+
+            # 获取并更新所有股票数据
+            for code in self.stocks.keys():
+                if code != self.current_stock:  # 跳过已经获取的当前股票
+                    data = self.fetch_stock_data(code)
+                    if data:
+                        name = data["name"] or self.stocks[code]["name"]
+                        price = data["price"]
+                        change = data["change"]
+                        change_symbol = "↑" if change > 0 else "↓"
+                        change_text = (
+                            f"+{change:.2f}%" if change > 0 else f"{change:.2f}%"
+                        )
+                        text = f"{name}: {price:.2f} {change_symbol} {change_text}"
+                        if code in self.stock_items:
+                            self.stock_items[code].title = text
+
+        except Exception as e:
+            print(f"Update error: {str(e)}")
 
 
 if __name__ == "__main__":
