@@ -47,7 +47,7 @@ class StockMenuBar(rumps.App):
 
         # 添加股票管理选项
         self.menu.add(rumps.separator)
-        # self.menu.add(rumps.MenuItem("搜索股票", callback=self.search_stock))
+        self.menu.add(rumps.MenuItem("搜索股票", callback=self.search_stock))
         self.menu.add(rumps.MenuItem("添加股票", callback=self.add_stock))
         self.menu.add(rumps.MenuItem("删除股票", callback=self.remove_stock))
 
@@ -103,7 +103,7 @@ class StockMenuBar(rumps.App):
         except (FileNotFoundError, json.JSONDecodeError):
             pass
 
-        # 如果文件不存在、为空或解��失败，保存默认股票列表
+        # 如果文件不存在、为空或解析���败，保存默认股票列表
         self.save_stocks()
 
     def update_stocks(self):
@@ -167,7 +167,7 @@ class StockMenuBar(rumps.App):
                         else:
                             rumps.alert("警告", "股票已添加，但保存配置文件失败")
                     else:
-                        rumps.alert("错误", "无���的股票代码")
+                        rumps.alert("错误", "无效的股票代码")
             else:
                 rumps.alert("提示", "请输入有效的股票代码")
 
@@ -240,13 +240,13 @@ class StockMenuBar(rumps.App):
                     rumps.alert("删除成功", f"已从监控列表删除 {code}")
                     self.setup_menu()  # 重新设置菜单
                 else:
-                    rumps.alert("警告", "股票已��除，但保存配置文件失败")
+                    rumps.alert("警告", "股票已删���，但保存配置文件失败")
             else:
                 rumps.alert("错误", "未找到该股票")
         else:
             rumps.alert("错误", "无法解析股票代码")
 
-    @rumps.timer(1)
+    @rumps.timer(2)
     def updateStockPrice(self, sender):
         """更新股票价格"""
         if not self.stocks:
@@ -271,7 +271,7 @@ class StockMenuBar(rumps.App):
                 change_text = f"+{change:.2f}%" if change > 0 else f"{change:.2f}%"
                 self.title = f"{name} {change_symbol}{change_text}"
 
-            # 更新时间（即使菜单关闭也会更新）
+            # 更新时间（即使菜单关闭也更新）
             current_time = datetime.now().strftime("%H:%M:%S")
             self.update_time.title = f"更新时间: {current_time}"
 
@@ -291,8 +291,115 @@ class StockMenuBar(rumps.App):
                         if code in self.stock_items:
                             self.stock_items[code].title = text
 
+            # 重新设置菜单以强制更新显示
+            self.menu._menu.update()
+
         except Exception as e:
             print(f"Update error: {str(e)}")
+
+    def search_stock(self, sender):
+        """搜索股票"""
+        window = rumps.Window(
+            message="请输入股票代码或名称：",
+            title="搜索股票",
+            default_text="",
+            ok="搜索",
+            cancel="取消",
+            dimensions=(300, 100),
+        )
+        response = window.run()
+        if response.clicked and response.text.strip():
+            keyword = response.text.strip()
+            results = self.fetch_stock_search(keyword)
+            if results:
+                # 创建选项列表
+                options = []
+                for stock in results:
+                    market = "sh" if stock["market"] == "1" else "sz"
+                    code = f"{market}{stock['code']}"
+                    options.append(f"{stock['name']} ({code})")
+
+                # 创建选择窗口
+                select_window = rumps.Window(
+                    message="请选择要添加的股票：",
+                    title="添加股票",
+                    default_text="\n".join(options),
+                    dimensions=(300, 200),
+                    ok="添加",
+                    cancel="取消",
+                )
+                select_response = select_window.run()
+                if select_response.clicked:
+                    selected = select_response.text.strip()
+                    if selected in options:
+                        # 提取股票代码
+                        start_index = selected.rfind("(")
+                        end_index = selected.rfind(")")
+                        if start_index != -1 and end_index != -1:
+                            code = selected[start_index + 1 : end_index]
+                            # 调用添加股票的逻辑
+                            self.add_specific_stock(code)
+            else:
+                rumps.alert("提示", "未找到匹配的股票")
+
+    def fetch_stock_search(self, keyword):
+        """搜索股票信息"""
+        try:
+            url = "http://searchapi.eastmoney.com/api/suggest/get"
+            params = {
+                "input": keyword,
+                "type": "14",
+                "token": "D43BF722C8E33BDC906FB84D85E326E8",
+                "count": "50",
+            }
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Referer": "http://quote.eastmoney.com/",
+            }
+
+            response = requests.get(url, params=params, headers=headers)
+            data = response.json()
+            print("data", data)
+
+            if "QuotationCodeTable" in data:
+                quote_data = data["QuotationCodeTable"]
+                if "Data" in quote_data and quote_data["Data"]:
+                    results = []
+                    for item in quote_data["Data"]:
+                        # 只返回A股
+                        if item["SecurityType"] in ["1", "2"]:  # 1为上证，2为深证
+                            market = "1" if item["SecurityType"] == "1" else "0"
+                            results.append(
+                                {
+                                    "code": item["Code"],
+                                    "name": item["Name"],
+                                    "market": market,
+                                }
+                            )
+                    print("results", results)
+                    return results
+            return []
+        except Exception as e:
+            print(f"Search error: {str(e)}")
+            return []
+
+    def add_specific_stock(self, code):
+        """添加特定股票"""
+        if code in self.stocks:
+            rumps.alert("提示", "该股票已在监控列表中")
+        else:
+            data = self.fetch_stock_data(code)
+            if data:
+                self.stocks[code] = {"name": data["name"]}
+                if self.save_stocks():
+                    rumps.alert(
+                        "添加成功", f"已添加 {data['name']} ({code}) 到监控列表"
+                    )
+                    self.setup_menu()
+                else:
+                    rumps.alert("警告", "股票已添加，但保存配置文件失败")
+            else:
+                rumps.alert("错误", "无效的股票代码")
 
 
 if __name__ == "__main__":
