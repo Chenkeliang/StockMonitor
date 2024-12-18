@@ -23,6 +23,7 @@ mkdir "$TMP_DMG"
 
 # 复制应用到临时目录
 cp -r "dist/Stock Monitor.app" "$TMP_DMG/"
+chmod -R 755 "$TMP_DMG/Stock Monitor.app"
 
 # 确保没有旧的挂载点
 sudo hdiutil detach "/Volumes/Stock Monitor" 2>/dev/null || true

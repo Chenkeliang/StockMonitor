@@ -5,6 +5,13 @@ from datetime import datetime
 import threading
 import json
 from functools import partial
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.dates import DateFormatter
+import matplotlib
+import os
+
+matplotlib.use("Agg")  # 使用Agg后端，避免GUI相关问题
 
 
 class StockMenuBar(rumps.App):
@@ -24,6 +31,7 @@ class StockMenuBar(rumps.App):
         self.stock_items = {}
         self.current_index = 0  # 添加当前显示的股票索引
         self.current_stock = None  # 添加当前显示的股票代码
+        self.last_chart_update = 0  # 添加最后更新时间戳
         self.setup_menu()
 
     def setup_menu(self):
@@ -32,7 +40,7 @@ class StockMenuBar(rumps.App):
         # 清除现有菜单项
         self.menu.clear()
 
-        # 为每个股票创建菜单项
+        # 为每个股票创建菜单
         self.stock_items = {}
         for code in self.stocks.keys():
             print(f"设置菜单{code}")
@@ -57,6 +65,16 @@ class StockMenuBar(rumps.App):
             "暂停轮播", callback=self.toggle_rotation
         )
         self.menu.add(self.rotation_control)
+
+        # 添加均线图选项
+        self.menu.add(rumps.separator)
+        self.menu.add(rumps.MenuItem("显示均线图", callback=self.show_ma_chart))
+
+        # 添加分时图菜单项
+        self.menu.add(rumps.separator)
+        self.menu.add(
+            rumps.MenuItem("显示分时图", callback=self.show_time_sharing_chart)
+        )
 
     def fetch_stock_data(self, stock_code):
         """获取股票数据"""
@@ -103,7 +121,7 @@ class StockMenuBar(rumps.App):
         except (FileNotFoundError, json.JSONDecodeError):
             pass
 
-        # 如果文件不存在、为空或解析���败，保存默认股票列表
+        # 如果文件不存在、为空或解析失败，保存默认股票列表
         self.save_stocks()
 
     def update_stocks(self):
@@ -122,7 +140,7 @@ class StockMenuBar(rumps.App):
                     price = data["price"]
                     change = data["change"]
 
-                    # 根据涨跌设置不同的符号
+                    # 根据涨跌设置不同的
                     change_symbol = "↑" if change > 0 else "↓"
                     change_text = f"+{change:.2f}%" if change > 0 else f"{change:.2f}%"
 
@@ -189,7 +207,7 @@ class StockMenuBar(rumps.App):
             default_text="",
             dimensions=(200, 100),  # 设置窗口大小
             ok="删除",
-            cancel="取消",
+            cancel="��消",
         )
 
         # 添加选项列表
@@ -229,7 +247,7 @@ class StockMenuBar(rumps.App):
     def on_button_click(self, button_text):
         """处理按钮点击事件"""
         print(f"Button clicked: {button_text}")
-        # 从按钮文本中提取股票代码
+        # 从��钮文本中提取股票代码
         start_index = button_text.rfind("(")
         end_index = button_text.rfind(")")
         if start_index != -1 and end_index != -1 and start_index < end_index:
@@ -240,7 +258,7 @@ class StockMenuBar(rumps.App):
                     rumps.alert("删除成功", f"已从监控列表删除 {code}")
                     self.setup_menu()  # 重新设置菜单
                 else:
-                    rumps.alert("警告", "股票已删���，但保存配置文件失败")
+                    rumps.alert("警告", "股票已删除，但保存配置文件失败")
             else:
                 rumps.alert("错误", "未找到该股票")
         else:
@@ -291,8 +309,11 @@ class StockMenuBar(rumps.App):
                         if code in self.stock_items:
                             self.stock_items[code].title = text
 
-            # 重新设置菜单以强制更新显示
+            # 重新设置菜单以显示
             self.menu._menu.update()
+
+            # 更新分时图
+            # self.update_time_sharing_chart()
 
         except Exception as e:
             print(f"Update error: {str(e)}")
@@ -400,6 +421,298 @@ class StockMenuBar(rumps.App):
                     rumps.alert("警告", "股票已添加，但保存配置文件失败")
             else:
                 rumps.alert("错误", "无效的股票代码")
+
+    def fetch_kline_data(self, stock_code, period=101):
+        """获取K线数据"""
+        try:
+            market = "1" if stock_code.startswith("sh") else "0"
+            pure_code = stock_code[2:]
+
+            url = "http://push2his.eastmoney.com/api/qt/stock/kline/get"
+            params = {
+                "secid": f"{market}.{pure_code}",
+                "fields1": "f1,f2,f3,f4,f5,f6",
+                "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
+                "klt": "101",  # 日K
+                "fqt": "1",  # 前复权
+                "end": "20500101",
+                "lmt": "120",  # 最近120个交易日数据
+                "ut": "fa5fd1943c7b386f172d6893dbfba10b",
+            }
+
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Referer": "http://quote.eastmoney.com/",
+            }
+
+            response = requests.get(url, params=params, headers=headers)
+            data = response.json()
+
+            if "data" in data and "klines" in data["data"]:
+                return data["data"]["klines"]
+        except Exception as e:
+            print(f"Error fetching kline data: {str(e)}")
+        return None
+
+    def show_ma_chart(self, sender):
+        """显示均线图"""
+        try:
+            # 设置中文字体
+            plt.rcParams["font.sans-serif"] = ["PingFang HK"]  # macOS 系统中文字体
+            plt.rcParams["axes.unicode_minus"] = False
+
+            # 获取K线数据
+            klines = self.fetch_kline_data("sh000001")
+            if not klines:
+                rumps.alert("错误", "无法获取数据")
+                return
+
+            # 解析数据
+            dates = []
+            opens = []
+            closes = []
+            highs = []
+            lows = []
+            volumes = []
+            for kline in klines:
+                date_str, open_price, close, high, low, volume, *rest = kline.split(",")
+                dates.append(datetime.strptime(date_str, "%Y-%m-%d"))
+                opens.append(float(open_price))
+                closes.append(float(close))
+                highs.append(float(high))
+                lows.append(float(low))
+                volumes.append(float(volume))
+
+            # 创建图表
+            fig, (ax1, ax2) = plt.subplots(
+                2,
+                1,
+                figsize=(12, 8),
+                height_ratios=[2.5, 1],
+                gridspec_kw={"hspace": 0.1},
+            )
+            plt.style.use("dark_background")
+
+            # 设置x轴为交易日序号
+            x = np.arange(len(dates))
+
+            # 绘制K线图
+            bar_width = 0.6
+            for i in x:
+                if closes[i] >= opens[i]:
+                    color = "#FF4444"
+                else:
+                    color = "#00B800"
+
+                # 绘制K线实体
+                ax1.add_patch(
+                    plt.Rectangle(
+                        (i - bar_width / 2, min(opens[i], closes[i])),
+                        bar_width,
+                        abs(closes[i] - opens[i]),
+                        facecolor=color,
+                        alpha=1.0,
+                    )
+                )
+                # 绘制上下影线
+                ax1.plot([i, i], [lows[i], highs[i]], color=color, linewidth=1)
+
+            # 计算并绘制均线
+            def calculate_ma(data, window):
+                return np.convolve(data, np.ones(window) / window, mode="valid")
+
+            ma5 = calculate_ma(closes, 5)
+            ma10 = calculate_ma(closes, 10)
+            ma20 = calculate_ma(closes, 20)
+
+            # 补充均线数据前面的空值
+            ma5 = np.concatenate([np.full(4, np.nan), ma5])
+            ma10 = np.concatenate([np.full(9, np.nan), ma10])
+            ma20 = np.concatenate([np.full(19, np.nan), ma20])
+
+            # 绘制均线
+            ax1.plot(x, ma5, label="MA5", color="#FFFF00", linewidth=1)
+            ax1.plot(x, ma10, label="MA10", color="#FF00FF", linewidth=1)
+            ax1.plot(x, ma20, label="MA20", color="#00FFFF", linewidth=1)
+
+            # 设置x轴刻度和标签
+            xticks = np.arange(0, len(dates), 10)  # 每10天显示一个刻度
+            ax1.set_xticks(xticks)
+            ax1.set_xticklabels([dates[i].strftime("%m-%d") for i in xticks])
+
+            # 设置图表标题和样式
+            change = closes[-1] - closes[-2]
+            change_pct = (change / closes[-2]) * 100
+            title_color = "#FF4444" if change >= 0 else "#00B800"
+            ax1.set_title(
+                f'上证指数 {closes[-1]:.2f} {"↑" if change >= 0 else "↓"}{abs(change_pct):.2f}%',
+                color=title_color,
+                fontsize=12,
+                pad=15,
+            )
+
+            # 设置网格
+            ax1.grid(True, linestyle="--", alpha=0.2)
+            ax1.legend(loc="upper left", framealpha=0.3)
+
+            # 绘制成交量
+            for i in range(len(dates)):
+                if closes[i] >= opens[i]:
+                    color = "#FF4444"
+                else:
+                    color = "#00B800"
+                ax2.bar(i, volumes[i], color=color, width=0.8, alpha=0.8)
+
+            # 设置成交量图样式
+            ax2.grid(True, linestyle="--", alpha=0.2)
+            ax2.set_xticks(xticks)
+            ax2.set_xticklabels([dates[i].strftime("%m-%d") for i in xticks])
+
+            # 调整布局
+            plt.tight_layout()
+
+            # 保存图表
+            save_path = os.path.expanduser("~/Desktop/ma_chart.png")
+            plt.savefig(
+                save_path,
+                facecolor="#1C1C1C",
+                edgecolor="none",
+                bbox_inches="tight",
+                dpi=200,
+            )
+            plt.close()
+
+            # 使用系统默认程序打开图片
+            os.system(f'open "{save_path}"')
+
+        except Exception as e:
+            print(f"Error showing chart: {str(e)}")
+            rumps.alert("错误", "显示图表时出错")
+
+    def fetch_time_sharing_data(self, stock_code):
+        """获取分时数据"""
+        try:
+            market = "1" if stock_code.startswith("sh") else "0"
+            pure_code = stock_code[2:]
+
+            url = "http://push2his.eastmoney.com/api/qt/stock/trends2/get"
+            params = {
+                "secid": f"{market}.{pure_code}",
+                "fields1": "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11",
+                "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
+                "ut": "fa5fd1943c7b386f172d6893dbfba10b",
+                "ndays": "1",
+            }
+
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Referer": "http://quote.eastmoney.com/",
+            }
+
+            response = requests.get(url, params=params, headers=headers)
+            data = response.json()
+
+            if "data" in data and "trends" in data["data"]:
+                return data["data"]
+            return None
+        except Exception as e:
+            print(f"Error fetching time sharing data: {str(e)}")
+            return None
+
+    def show_time_sharing_chart(self, sender):
+        """显示分时图"""
+        try:
+            plt.rcParams["font.sans-serif"] = ["PingFang HK"]
+            plt.rcParams["axes.unicode_minus"] = False
+
+            # 创建大尺寸图表
+            fig = plt.figure(figsize=(12, 6), dpi=200)
+            ax = fig.add_subplot(111)
+            plt.style.use("dark_background")
+
+            # 获取上证指数分时数据
+            data = self.fetch_time_sharing_data("sh000001")
+            if not data:
+                rumps.alert("错误", "无法获取数据")
+                return
+
+            trends = data["trends"]
+            pre_close = float(data["preClose"])
+
+            # 解析数据
+            times = []
+            prices = []
+            for trend in trends:
+                time_str, price = trend.split(",")[:2]
+                datetime_obj = datetime.strptime(time_str, "%Y-%m-%d %H:%M")
+                times.append(datetime_obj.strftime("%H:%M"))
+                prices.append(float(price))
+
+            # 计算价格范围
+            min_price = min(min(prices), pre_close)
+            max_price = max(max(prices), pre_close)
+            price_range = max_price - min_price
+
+            # 设置y轴范围和样式
+            ax.set_ylim(min_price - price_range * 0.1, max_price + price_range * 0.1)
+
+            # 绘制价格线
+            ax.plot(times, prices, color="#FFFFFF", linewidth=1.5, label="上证指数")
+
+            # 绘制昨收线
+            ax.axhline(
+                y=pre_close,
+                color="#808080",
+                linestyle="--",
+                linewidth=0.8,
+                label=f"昨收: {pre_close:.2f}",
+            )
+
+            # 计算涨跌幅
+            change = prices[-1] - pre_close
+            change_pct = (change / pre_close) * 100
+            title_color = "#FF4444" if change >= 0 else "#00B800"
+
+            # 设置标题
+            ax.set_title(
+                f'上证指数分时图  {prices[-1]:.2f}  {"↑" if change >= 0 else "↓"}{abs(change_pct):.2f}%',
+                color=title_color,
+                fontsize=14,
+                pad=15,
+            )
+
+            # 设置x轴
+            plt.xticks(rotation=45)
+            ax.set_xlabel("时间")
+            ax.set_ylabel("价格")
+
+            # 设置网格和图例
+            ax.grid(True, linestyle="--", alpha=0.2)
+            ax.legend(loc="upper left", framealpha=0.3)
+
+            # 调整布局
+            plt.tight_layout()
+
+            # 保存图表到用户的临时目录
+            temp_dir = os.path.expanduser("~/.stock_monitor")
+            os.makedirs(temp_dir, exist_ok=True)
+            save_path = os.path.join(temp_dir, "time_sharing_chart.png")
+
+            plt.savefig(
+                save_path,
+                facecolor="#1C1C1C",
+                edgecolor="none",
+                bbox_inches="tight",
+                dpi=200,
+            )
+            plt.close()
+
+            # 使用系统默认程序打开图片
+            os.system(f'open "{save_path}"')
+
+        except Exception as e:
+            print(f"Error showing time sharing chart: {str(e)}")
+            rumps.alert("错误", "显示分时图时出错")
 
 
 if __name__ == "__main__":
