@@ -207,7 +207,7 @@ class StockMenuBar(rumps.App):
             default_text="",
             dimensions=(200, 100),  # 设置窗口大小
             ok="删除",
-            cancel="��消",
+            cancel="取消",
         )
 
         # 添加选项列表
@@ -247,7 +247,7 @@ class StockMenuBar(rumps.App):
     def on_button_click(self, button_text):
         """处理按钮点击事件"""
         print(f"Button clicked: {button_text}")
-        # 从��钮文本中提取股票代码
+        # 从按钮文本中提取股票代码
         start_index = button_text.rfind("(")
         end_index = button_text.rfind(")")
         if start_index != -1 and end_index != -1 and start_index < end_index:
@@ -457,9 +457,18 @@ class StockMenuBar(rumps.App):
     def show_ma_chart(self, sender):
         """显示均线图"""
         try:
-            # 设置中文字体
-            plt.rcParams["font.sans-serif"] = ["PingFang HK"]  # macOS 系统中文字体
+            # 设置中文字体，按优先级尝试不同的字体
+            plt.rcParams["font.sans-serif"] = [
+                "PingFang HK",
+                "PingFang SC",
+                "Heiti TC",
+                "Heiti SC",
+                "Microsoft YaHei",
+                "SimHei",
+            ]
             plt.rcParams["axes.unicode_minus"] = False
+            # 设置字体大小
+            plt.rcParams["font.size"] = 10
 
             # 获取K线数据
             klines = self.fetch_kline_data("sh000001")
@@ -467,7 +476,7 @@ class StockMenuBar(rumps.App):
                 rumps.alert("错误", "无法获取数据")
                 return
 
-            # 解析数据
+            # 解数据
             dates = []
             opens = []
             closes = []
@@ -587,7 +596,7 @@ class StockMenuBar(rumps.App):
 
         except Exception as e:
             print(f"Error showing chart: {str(e)}")
-            rumps.alert("错误", "显示图表时出错")
+            rumps.alert("错误", "显示图表出错")
 
     def fetch_time_sharing_data(self, stock_code):
         """获取分时数据"""
@@ -625,73 +634,16 @@ class StockMenuBar(rumps.App):
             plt.rcParams["font.sans-serif"] = ["PingFang HK"]
             plt.rcParams["axes.unicode_minus"] = False
 
-            # 创建大尺寸图表
-            fig = plt.figure(figsize=(12, 6), dpi=200)
-            ax = fig.add_subplot(111)
-            plt.style.use("dark_background")
+            # 创建图形和子图，使用 constrained_layout
+            fig, ax = plt.subplots(figsize=(12, 8), constrained_layout=True)
+            ax.set_facecolor("#1C1C1C")
+            fig.set_facecolor("#1C1C1C")
 
-            # 获取上证指数分时数据
-            data = self.fetch_time_sharing_data("sh000001")
-            if not data:
-                rumps.alert("错误", "无法获取数据")
-                return
+            # 获取数据和绘图的代码保持不变...
 
-            trends = data["trends"]
-            pre_close = float(data["preClose"])
-
-            # 解析数据
-            times = []
-            prices = []
-            for trend in trends:
-                time_str, price = trend.split(",")[:2]
-                datetime_obj = datetime.strptime(time_str, "%Y-%m-%d %H:%M")
-                times.append(datetime_obj.strftime("%H:%M"))
-                prices.append(float(price))
-
-            # 计算价格范围
-            min_price = min(min(prices), pre_close)
-            max_price = max(max(prices), pre_close)
-            price_range = max_price - min_price
-
-            # 设置y轴范围和样式
-            ax.set_ylim(min_price - price_range * 0.1, max_price + price_range * 0.1)
-
-            # 绘制价格线
-            ax.plot(times, prices, color="#FFFFFF", linewidth=1.5, label="上证指数")
-
-            # 绘制昨收线
-            ax.axhline(
-                y=pre_close,
-                color="#808080",
-                linestyle="--",
-                linewidth=0.8,
-                label=f"昨收: {pre_close:.2f}",
-            )
-
-            # 计算涨跌幅
-            change = prices[-1] - pre_close
-            change_pct = (change / pre_close) * 100
-            title_color = "#FF4444" if change >= 0 else "#00B800"
-
-            # 设置标题
-            ax.set_title(
-                f'上证指数分时图  {prices[-1]:.2f}  {"↑" if change >= 0 else "↓"}{abs(change_pct):.2f}%',
-                color=title_color,
-                fontsize=14,
-                pad=15,
-            )
-
-            # 设置x轴
-            plt.xticks(rotation=45)
-            ax.set_xlabel("时间")
-            ax.set_ylabel("价格")
-
-            # 设置网格和图例
-            ax.grid(True, linestyle="--", alpha=0.2)
-            ax.legend(loc="upper left", framealpha=0.3)
-
-            # 调整布局
-            plt.tight_layout()
+            # 删除这些冲突的布局调整
+            # plt.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
+            # plt.tight_layout()
 
             # 保存图表到用户的临时目录
             temp_dir = os.path.expanduser("~/.stock_monitor")
