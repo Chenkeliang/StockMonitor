@@ -10,12 +10,33 @@ import numpy as np
 from matplotlib.dates import DateFormatter
 import matplotlib
 import os
+import logging
 
 matplotlib.use("Agg")  # 使用Agg后端，避免GUI相关问题
+
+# 日志配置
+LOG_DIR = os.path.expanduser("~/.stock_monitor/logs")
+LOG_FILE = os.path.join(LOG_DIR, "stock_monitor.log")
+LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
+LOG_LEVEL = "DEBUG"
 
 
 class StockMenuBar(rumps.App):
     def __init__(self):
+        # 设置日志
+        os.makedirs(LOG_DIR, exist_ok=True)
+        logging.basicConfig(
+            filename=LOG_FILE, level=getattr(logging, LOG_LEVEL), format=LOG_FORMAT
+        )
+        self.logger = logging.getLogger(__name__)
+        self.logger.info("应用启动")
+
+        # 初始化配置目录
+        self.config_dir = os.path.expanduser("~/.stock_monitor")
+        self.config_file = os.path.join(self.config_dir, "stocks.json")
+        self.logger.info(f"配置目录: {self.config_dir}")
+        self.logger.info(f"配置文件: {self.config_file}")
+
         # 初始化默认股票列表
         self.stocks = {
             "sh000001": {"name": "上证指数"},
@@ -53,7 +74,7 @@ class StockMenuBar(rumps.App):
         self.update_time = rumps.MenuItem("更新时间: --:--:--")
         self.menu.add(self.update_time)
 
-        # 添加股票管理选项
+        # 添加股票管理���项
         self.menu.add(rumps.separator)
         self.menu.add(rumps.MenuItem("搜索股票", callback=self.search_stock))
         self.menu.add(rumps.MenuItem("添加股票", callback=self.add_stock))
@@ -207,7 +228,7 @@ class StockMenuBar(rumps.App):
             default_text="",
             dimensions=(200, 100),  # 设置窗口大小
             ok="删除",
-            cancel="��消",
+            cancel="取消",
         )
 
         # 添加选项列表
@@ -225,11 +246,36 @@ class StockMenuBar(rumps.App):
     def save_stocks(self):
         """保存股票列表到配置文件"""
         try:
-            with open("stocks.json", "w", encoding="utf-8") as f:
+            self.logger.info("开始保存配置...")
+            self.logger.info(f"股票列表: {self.stocks}")
+
+            # 确保目录存在
+            os.makedirs(self.config_dir, exist_ok=True)
+
+            # 临时文件保存
+            temp_file = f"{self.config_file}.tmp"
+            with open(temp_file, "w", encoding="utf-8") as f:
                 json.dump(self.stocks, f, ensure_ascii=False, indent=4)
+
+            # 设置权限
+            os.chmod(temp_file, 0o666)
+
+            # 安全替换
+            os.replace(temp_file, self.config_file)
+
+            self.logger.info("配置保存成功")
             return True
+
         except Exception as e:
-            print(f"保存股票列表失败: {str(e)}")
+            self.logger.error(f"保存失败: {str(e)}", exc_info=True)
+            self.logger.error(
+                f"目录权限: {oct(os.stat(self.config_dir).st_mode & 0o777)}"
+            )
+            if os.path.exists(self.config_file):
+                self.logger.error(
+                    f"文件权限: {oct(os.stat(self.config_file).st_mode & 0o777)}"
+                )
+            self.logger.error(f"用户ID: {os.getuid()}")
             return False
 
     def toggle_rotation(self, sender):
@@ -293,7 +339,7 @@ class StockMenuBar(rumps.App):
             current_time = datetime.now().strftime("%H:%M:%S")
             self.update_time.title = f"更新时间: {current_time}"
 
-            # 获取并更新所有股票数据
+            # 获取并更��所有股票数据
             for code in self.stocks.keys():
                 if code != self.current_stock:  # 跳过已经获取的当前股票
                     data = self.fetch_stock_data(code)
@@ -418,7 +464,7 @@ class StockMenuBar(rumps.App):
                     )
                     self.setup_menu()
                 else:
-                    rumps.alert("警告", "股票已添加，但保存配置文件失败")
+                    rumps.alert("警告", "股票已添加，但保��配置文件失败")
             else:
                 rumps.alert("错误", "无效的股票代码")
 
@@ -544,7 +590,7 @@ class StockMenuBar(rumps.App):
             ax1.plot(x, ma10, label="MA10", color="#FF00FF", linewidth=1)
             ax1.plot(x, ma20, label="MA20", color="#00FFFF", linewidth=1)
 
-            # 设置x轴刻度和标签
+            # ���置x轴刻度和标签
             xticks = np.arange(0, len(dates), 10)  # 每10天显示一个刻度
             ax1.set_xticks(xticks)
             ax1.set_xticklabels([dates[i].strftime("%m-%d") for i in xticks])
@@ -577,7 +623,7 @@ class StockMenuBar(rumps.App):
             ax2.set_xticks(xticks)
             ax2.set_xticklabels([dates[i].strftime("%m-%d") for i in xticks])
 
-            # 调整布局
+            # 调整��局
             plt.tight_layout()
 
             # 保存图表
