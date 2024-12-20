@@ -13,6 +13,12 @@ print_error() {
     echo -e "${RED}[错误]${NC} $1"
 }
 
+# 检查图标文件
+if [ ! -f "icons/icon.icns" ]; then
+    print_error "缺少图标文件 icons/icon.icns"
+    exit 1
+fi
+
 # 清理旧文件
 print_message "清理旧文件..."
 rm -rf build dist *.spec venv
@@ -26,6 +32,7 @@ source venv/bin/activate
 print_message "安装依赖..."
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
+python -m pip install pyinstaller
 
 # 创建 spec 文件
 print_message "创建打包配置..."
@@ -33,11 +40,11 @@ cat > stock_monitor.spec << EOL
 # -*- mode: python ; coding: utf-8 -*-
 
 a = Analysis(
-    ['stock_menubar.py'],
+    ['stock_monitor/ui/menubar.py'],
     pathex=[],
     binaries=[],
     datas=[('icons/*', 'icons')],
-    hiddenimports=['rumps'],
+    hiddenimports=['rumps', 'matplotlib', 'numpy', 'requests'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -79,7 +86,7 @@ app = BUNDLE(
     coll,
     name='Stock Monitor.app',
     icon='icons/icon.icns',
-    bundle_identifier='com.yourname.stockmonitor',
+    bundle_identifier='com.stockmonitor.app',
     info_plist={
         'LSUIElement': True,
         'CFBundleName': 'Stock Monitor',
@@ -87,6 +94,11 @@ app = BUNDLE(
         'CFBundleVersion': '1.0.0',
         'CFBundleShortVersionString': '1.0.0',
         'NSHighResolutionCapable': True,
+        'NSAppleEventsUsageDescription': '需要访问文件系统来保存配置',
+        'NSDesktopFolderUsageDescription': '需要访问文件系统来保存配置',
+        'NSDocumentsFolderUsageDescription': '需要访问文件系统来保存配置',
+        'NSDownloadsFolderUsageDescription': '需要访问文件系统来保存配置',
+        'NSHomeDirectoryUsageDescription': '需要访问用户目录来保存配置',
     }
 )
 EOL
@@ -113,4 +125,4 @@ sudo rm -rf "/Applications/Stock Monitor.app"
 sudo cp -R "dist/Stock Monitor.app" /Applications/
 sudo chown -R $USER:staff "/Applications/Stock Monitor.app"
 
-print_message "安装完成！"
+print_message "安装完成！" 

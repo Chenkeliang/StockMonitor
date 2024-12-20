@@ -1,9 +1,4 @@
-Flask==3.0.0
-pandas==2.2.0
-plotly==5.18.0
-requests==2.31.0
-rumps==0.4.0
-matplotlib==3.7.1
-numpy==1.24.2
-pyinstaller==6.11.0
-pyobjc-framework-Cocoa==10.1
+rumps>=0.4.0
+requests>=2.31.0
+matplotlib>=3.7.1
+numpy>=1.24.3 

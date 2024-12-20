@@ -207,7 +207,7 @@ class StockMenuBar(rumps.App):
             default_text="",
             dimensions=(200, 100),  # 设置窗口大小
             ok="删除",
-            cancel="取消",
+            cancel="��消",
         )
 
         # 添加选项列表
@@ -634,16 +634,106 @@ class StockMenuBar(rumps.App):
             plt.rcParams["font.sans-serif"] = ["PingFang HK"]
             plt.rcParams["axes.unicode_minus"] = False
 
-            # 创建图形和子图，使用 constrained_layout
-            fig, ax = plt.subplots(figsize=(12, 8), constrained_layout=True)
-            ax.set_facecolor("#1C1C1C")
-            fig.set_facecolor("#1C1C1C")
+            # 获取当前显示的股票代码
+            if not self.current_stock:
+                rumps.alert("错误", "请先选择一个股票")
+                return
 
-            # 获取数据和绘图的代码保持不变...
+            # 获取分时数据
+            data = self.fetch_time_sharing_data(self.current_stock)
+            if not data or "trends" not in data:
+                rumps.alert("错误", "无法获取分时数据")
+                return
 
-            # 删除这些冲突的布局调整
-            # plt.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
-            # plt.tight_layout()
+            # 解析数据
+            times = []
+            prices = []
+            volumes = []
+            avg_prices = []
+
+            for trend in data["trends"]:
+                try:
+                    time_str, price, avg_price, volume, *rest = trend.split(",")
+                    times.append(datetime.strptime(time_str, "%Y-%m-%d %H:%M"))
+                    prices.append(float(price))
+                    avg_prices.append(float(avg_price))
+                    volumes.append(float(volume))
+                except (ValueError, IndexError) as e:
+                    print(f"Error parsing trend data: {str(e)}, data: {trend}")
+                    continue
+
+            if not times:
+                rumps.alert("错误", "数据解析失败")
+                return
+
+            # 创建图表
+            fig, (ax1, ax2) = plt.subplots(
+                2, 1, figsize=(12, 8), height_ratios=[2.5, 1]
+            )
+            fig.patch.set_facecolor("#1C1C1C")
+
+            # 绘制价格走势
+            ax1.set_facecolor("#1C1C1C")
+            ax1.plot(times, prices, label="价格", linewidth=1, color="white")
+            ax1.plot(
+                times, avg_prices, label="均价", linewidth=1, color="yellow", alpha=0.8
+            )
+
+            # 设置x轴标签
+            ax1.set_xticks(times[:: len(times) // 8])  # 显示8个时间点
+            ax1.set_xticklabels(
+                [t.strftime("%H:%M") for t in times[:: len(times) // 8]], rotation=45
+            )
+
+            # 添加网格和图例
+            ax1.grid(True, linestyle="--", alpha=0.3)
+            ax1.legend(loc="upper left")
+
+            # 获取基准价格用于计算涨跌
+            base_price = data.get("prePrice", prices[0])
+            up_color = "#FF4444"
+            down_color = "#00B800"
+
+            # 设置价格区间
+            price_min = min(min(prices), min(avg_prices))
+            price_max = max(max(prices), max(avg_prices))
+            price_range = price_max - price_min
+            ax1.set_ylim(price_min - price_range * 0.1, price_max + price_range * 0.1)
+
+            # 添加基准价格线
+            ax1.axhline(y=base_price, color="gray", linestyle="--", alpha=0.5)
+
+            # 设置标题
+            change = prices[-1] - base_price
+            change_pct = (change / base_price) * 100
+            title_color = up_color if change >= 0 else down_color
+            ax1.set_title(
+                f'{self.stocks[self.current_stock]["name"]} {prices[-1]:.2f} {"↑" if change >= 0 else "↓"}{abs(change_pct):.2f}%',
+                color=title_color,
+                fontsize=12,
+                pad=15,
+            )
+
+            # 绘制成交量图
+            ax2.set_facecolor("#1C1C1C")
+            volume_colors = [
+                up_color if p >= base_price else down_color for p in prices
+            ]
+            ax2.bar(
+                times, volumes, width=0.8 * (times[1] - times[0]), color=volume_colors
+            )
+
+            # 设置成交量图的x轴标签
+            ax2.set_xticks(times[:: len(times) // 8])
+            ax2.set_xticklabels(
+                [t.strftime("%H:%M") for t in times[:: len(times) // 8]], rotation=45
+            )
+
+            # 添加网格
+            ax2.grid(True, linestyle="--", alpha=0.3)
+
+            # 调整布局
+            plt.tight_layout()
 
             # 保存图表到用户的临时目录
             temp_dir = os.path.expanduser("~/.stock_monitor")

@@ -1,0 +1,3 @@
+"""
+Stock Monitor UI package
+"""
