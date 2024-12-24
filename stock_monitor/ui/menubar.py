@@ -74,7 +74,7 @@ class StockMenuBar(rumps.App):
         self.update_time = rumps.MenuItem("更新时间: --:--:--")
         self.menu.add(self.update_time)
 
-        # 添加股票管理���项
+        # 添加股票管理项
         self.menu.add(rumps.separator)
         self.menu.add(rumps.MenuItem("搜索股票", callback=self.search_stock))
         self.menu.add(rumps.MenuItem("添加股票", callback=self.add_stock))
@@ -90,12 +90,15 @@ class StockMenuBar(rumps.App):
         # 添加均线图选项
         self.menu.add(rumps.separator)
         self.menu.add(rumps.MenuItem("显示均线图", callback=self.show_ma_chart))
-
-        # 添加分时图菜单项
-        self.menu.add(rumps.separator)
         self.menu.add(
             rumps.MenuItem("显示分时图", callback=self.show_time_sharing_chart)
         )
+        self.menu.add(rumps.MenuItem("退出", callback=self.quit_app))
+
+    def quit_app(self, _):
+        """退出应用"""
+        self.logger.info("应用退出")
+        rumps.quit_application()
 
     def fetch_stock_data(self, stock_code):
         """获取股票数据"""
@@ -132,15 +135,19 @@ class StockMenuBar(rumps.App):
     def load_stocks(self):
         """从配置文件加载股票列表"""
         try:
-            with open("stocks.json", "r", encoding="utf-8") as f:
-                content = f.read().strip()
-                if content:  # 如果文件不为空
-                    loaded_stocks = json.loads(content)
-                    if loaded_stocks:  # 如果解析出的数据不为空
-                        self.stocks = loaded_stocks
-                        return
-        except (FileNotFoundError, json.JSONDecodeError):
-            pass
+            if os.path.exists(self.config_file):
+                self.logger.info(f"正在加载配置文件: {self.config_file}")
+                with open(self.config_file, "r", encoding="utf-8") as f:
+                    content = f.read().strip()
+                    if content:  # 如果文件不为空
+                        loaded_stocks = json.loads(content)
+                        if loaded_stocks:  # 如果解析出的数据不为空
+                            self.stocks = loaded_stocks
+                            self.logger.info("成功加载配置")
+                            return
+            self.logger.warning("配置文件不存在或为空，使用默认配置")
+        except Exception as e:
+            self.logger.error(f"加载配置失败: {str(e)}")
 
         # 如果文件不存在、为空或解析失败，保存默认股票列表
         self.save_stocks()
@@ -175,7 +182,7 @@ class StockMenuBar(rumps.App):
                 self.update_time.title = f"更新时间: {current_time}"
 
             except Exception as e:
-                print(f"Update error: {str(e)}")
+                print(f"Update error2: {str(e)}")
 
             time.sleep(2)  # 更新间隔
 
@@ -339,7 +346,7 @@ class StockMenuBar(rumps.App):
             current_time = datetime.now().strftime("%H:%M:%S")
             self.update_time.title = f"更新时间: {current_time}"
 
-            # 获取并更��所有股票数据
+            # 获取并更新所有股票数据
             for code in self.stocks.keys():
                 if code != self.current_stock:  # 跳过已经获取的当前股票
                     data = self.fetch_stock_data(code)
@@ -464,7 +471,7 @@ class StockMenuBar(rumps.App):
                     )
                     self.setup_menu()
                 else:
-                    rumps.alert("警告", "股票已添加，但保��配置文件失败")
+                    rumps.alert("警告", "股票已添加，但保存配置文件失败")
             else:
                 rumps.alert("错误", "无效的股票代码")
 
@@ -590,7 +597,7 @@ class StockMenuBar(rumps.App):
             ax1.plot(x, ma10, label="MA10", color="#FF00FF", linewidth=1)
             ax1.plot(x, ma20, label="MA20", color="#00FFFF", linewidth=1)
 
-            # ���置x轴刻度和标签
+            # 设置x轴刻度和标签
             xticks = np.arange(0, len(dates), 10)  # 每10天显示一个刻度
             ax1.set_xticks(xticks)
             ax1.set_xticklabels([dates[i].strftime("%m-%d") for i in xticks])
@@ -623,7 +630,7 @@ class StockMenuBar(rumps.App):
             ax2.set_xticks(xticks)
             ax2.set_xticklabels([dates[i].strftime("%m-%d") for i in xticks])
 
-            # 调整��局
+            # 调整布局
             plt.tight_layout()
 
             # 保存图表
@@ -731,7 +738,7 @@ class StockMenuBar(rumps.App):
                 [t.strftime("%H:%M") for t in times[:: len(times) // 8]], rotation=45
             )
 
-            # 添加网格和图例
+            # 添加��格和图例
             ax1.grid(True, linestyle="--", alpha=0.3)
             ax1.legend(loc="upper left")
 
